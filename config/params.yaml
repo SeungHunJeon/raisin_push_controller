@@ -1,11 +1,15 @@
-actor_path:
-  value: rsc/full_12800.txt
+network_path:
+  value: rsc/network
   dtype: string
 
-obs_mean_path:
-  value: rsc/mean12800.csv
-  dtype: string
-
-obs_var_path:
-  value: rsc/var12800.csv
-  dtype: string
+#actor_path:
+#  value: rsc/full_12800.txt
+#  dtype: string
+#
+#obs_mean_path:
+#  value: rsc/mean12800.csv
+#  dtype: string
+#
+#obs_var_path:
+#  value: rsc/var12800.csv
+#  dtype: string

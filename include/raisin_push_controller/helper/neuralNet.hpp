@@ -304,5 +304,151 @@ class LSTM_MLP {
   std::vector<int> architecture_;
 };
 
+template<typename dtype, int inputDim, int outputDim, ActivationType activationType>
+class LSTM {
+ public:
+  typedef Eigen::Matrix<dtype, outputDim, 1> Output;
+  typedef Eigen::Matrix<dtype, inputDim, 1> Input;
+
+  LSTM(int hiddenDim, int numLayer) {
+    const static Eigen::IOFormat CSVFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "\n");
+    hiddenDim_ = hiddenDim;
+    numLayer_ = numLayer;
+    initHidden();
+
+    architecture_.push_back(inputDim);
+    for (int l = 0; l < numLayer_; ++l) {
+      architecture_.push_back(hiddenDim_);
+      architecture_.push_back(hiddenDim_);
+    }
+    architecture_.reserve(architecture_.size());
+//    architecture_.insert(architecture_.end(), outputMLP.begin(), outputMLP.end());
+//    architecture_.push_back(outputDim);
+
+    params.resize(2 * (architecture_.size() - 1));
+    W.resize(architecture_.size() - 1);
+    b.resize(architecture_.size() - 1);
+    x.resize(architecture_.size());
+
+    for (int w = 0; w < params.size(); ++w) {
+      if (w < 4 * numLayer_) { /// lstm
+        if (w % 4 == 0) {
+          if (w / 4 == 0){ /// first layer
+            W[w/2].resize(4 * hiddenDim_, inputDim);
+            W[w/2 + 1].resize(4 * hiddenDim_, hiddenDim_);
+            b[w/2].resize(4 * hiddenDim_);
+            b[w/2 + 1].resize(4 * hiddenDim_);
+
+            params[w + 0].resize(4 * inputDim * hiddenDim_);
+            params[w + 1].resize(4 * hiddenDim_ * hiddenDim_);
+            params[w + 2].resize(4 * hiddenDim_);
+            params[w + 3].resize(4 * hiddenDim_);
+          }
+          else { /// not the first layer
+            W[w/2].resize(4 * hiddenDim_, hiddenDim_);
+            W[w/2 + 1].resize(4 * hiddenDim_, hiddenDim_);
+            b[w/2].resize(4 * hiddenDim_);
+            b[w/2 + 1].resize(4 * hiddenDim_);
+
+            params[w + 0].resize(4 * hiddenDim_ * hiddenDim_);
+            params[w + 1].resize(4 * hiddenDim_ * hiddenDim_);
+            params[w + 2].resize(4 * hiddenDim_);
+            params[w + 3].resize(4 * hiddenDim_);
+          }
+          w += 3;
+        }
+      }
+    }
+  }
+
+  void initHidden() {
+    const static Eigen::IOFormat CSVFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "\n");
+
+    h.resize(numLayer_);
+    c.resize(numLayer_);
+
+    for (int i = 0; i < numLayer_; ++i) {
+      h[i].setZero(hiddenDim_);
+      c[i].setZero(hiddenDim_);
+    }
+  }
+
+  void readParamFromTxt(std::string filePath) {
+    const static Eigen::IOFormat CSVFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "\n");
+
+    std::ifstream indata;
+    indata.open(filePath);
+    std::string line;
+    getline(indata, line);
+    std::stringstream lineStream(line);
+    std::string cell;
+
+    int totalN = 0;
+
+    for (int i = 0; i < int(params.size()); ++i) {
+      int paramSize = 0;
+
+      while (std::getline(lineStream, cell, ',')) {
+        params[i](paramSize++) = std::stod(cell);
+        if (paramSize == params[i].size()) break;
+      }
+      totalN += paramSize;
+    }
+    for (int i = 0; i < int(params.size()); ++i) {
+      if (i < 4 * numLayer_) {
+        memcpy(W[i/2 + 0].data(), params[i + 0].data(), sizeof(dtype) * W[i/2 + 0].size());
+        memcpy(W[i/2 + 1].data(), params[i + 1].data(), sizeof(dtype) * W[i/2 + 1].size());
+        memcpy(b[i/2 + 0].data(), params[i + 2].data(), sizeof(dtype) * b[i/2 + 0].size());
+        memcpy(b[i/2 + 1].data(), params[i + 3].data(), sizeof(dtype) * b[i/2 + 1].size());
+        i += 3;
+      }
+      else {
+        if (i % 2 == 0)
+          memcpy(W[i / 2].data(), params[i].data(), sizeof(dtype) * W[i / 2].size());
+        if (i % 2 == 1)
+          memcpy(b[i / 2].data(), params[i].data(), sizeof(dtype) * b[(i - 1) / 2].size());
+      }
+    }
+  }
+
+  inline Output forward(Input &input) {
+    x[0] = input;
+
+    /// lstm
+    for (int l = 0; l < numLayer_; ++l) {
+      x[2*l + 1] = W[2*l] * x[2*l] + b[2*l] + W[2*l + 1] * h[l] + b[2*l + 1];
+      Eigen::Matrix<dtype, -1, 1> i = x[2*l + 1].segment(0*hiddenDim_, hiddenDim_),
+          f = x[2*l + 1].segment(1*hiddenDim_, hiddenDim_),
+          g = x[2*l + 1].segment(2*hiddenDim_, hiddenDim_),
+          o = x[2*l + 1].segment(3*hiddenDim_, hiddenDim_);
+      sigmoid_.nonlinearity(i);
+      sigmoid_.nonlinearity(f);
+      tanh_.nonlinearity(g);
+      sigmoid_.nonlinearity(o);
+
+      c[l] = f.cwiseProduct(c[l]) + i.cwiseProduct(g);
+      h[l] = o.cwiseProduct(tanh_._nonlinearity(c[l]));
+      x[2*l + 2] = h[l];
+    }
+
+    return x.back();
+  }
+
+ private:
+  int hiddenDim_, numLayer_;
+  std::vector<Eigen::Matrix<dtype, -1, 1>> h;
+  std::vector<Eigen::Matrix<dtype, -1, 1>> c;
+
+  std::vector<Eigen::Matrix<dtype, -1, 1>> params;
+  std::vector<Eigen::Matrix<dtype, -1, -1>> W;
+  std::vector<Eigen::Matrix<dtype, -1, 1>> b;
+  std::vector<Eigen::Matrix<dtype, -1, 1>> x;
+
+  Activation<dtype, activationType> activation_;
+  Activation<dtype, ActivationType::sigmoid> sigmoid_;
+  Activation<dtype, ActivationType::tanh> tanh_;
+  std::vector<int> architecture_;
+};
+
 }
 }

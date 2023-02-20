@@ -19,7 +19,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(raisin_controller REQUIRED)
 find_package(raisin_interfaces REQUIRED)
 find_package(raisin_data_logger REQUIRED)
-find_package(raisin_raibot REQUIRED)
+#find_package(raisin_raibot REQUIRED)
 add_library(${PROJECT_NAME} SHARED
         src/${PROJECT_NAME}/raibot_learning_controller.cpp
         )
@@ -37,7 +37,7 @@ ament_target_dependencies(${PROJECT_NAME}
   raisin_interfaces
   sensor_msgs
   raisin_data_logger
-   raisin_raibot
+#   raisin_raibot
 )
 
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
