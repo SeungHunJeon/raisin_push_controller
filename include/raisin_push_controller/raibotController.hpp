@@ -112,7 +112,6 @@ class raibotController {
     Eigen::VectorXf subgoal_command;
     auto* raibot = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot"));
     subgoal_command = action.cwiseQuotient(high_actionStd_.cast<float>());
-    RSINFO(subgoal_command)
     /// Use this command via Controller.setCommand
     return subgoal_command;
   }
@@ -176,7 +175,6 @@ class raibotController {
 
     /// Into robot frame
     ee_to_obj = rot_.e().transpose() * ee_to_obj;
-    RSINFO(ee_to_obj)
     obj_to_target = rot_.e().transpose() * obj_to_target;
     ee_to_target = rot_.e().transpose() * ee_to_target;
 
@@ -220,7 +218,6 @@ class raibotController {
     quat[0] = gc_[3]; quat[1] = gc_[4]; quat[2] = gc_[5]; quat[3] = gc_[6];
     raisim::quatToRotMat(quat, rot_);
     bodyAngularVel_ = rot_.e().transpose() * gv_.segment(3, 3);
-    RSINFO(command_)
     obDouble_ << command_, /// command 3
         rot_.e().row(2).transpose(), /// body orientation: z-axis 3
         bodyAngularVel_, /// body angular velocity 3
