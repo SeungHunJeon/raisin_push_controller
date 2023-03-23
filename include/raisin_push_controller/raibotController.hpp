@@ -18,7 +18,7 @@ class raibotController {
  public:
 
   bool create(raisim::World *world) {
-    auto* raibot = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot"));
+    auto* raibot = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot2"));
     Obj_ = reinterpret_cast<raisim::SingleBodyObject*>(world->getObject("Object"));
     auto Target_ = reinterpret_cast<raisim::SingleBodyObject*>(world->getObject("Target"));
     obj_geometry << 1.0, 1.0, 0.55;
@@ -110,7 +110,6 @@ class raibotController {
 
   Eigen::VectorXf high_advance(raisim::World *world, const Eigen::Ref<EigenVec>& action) {
     Eigen::VectorXf subgoal_command;
-    auto* raibot = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot"));
     subgoal_command = action.cwiseQuotient(high_actionStd_.cast<float>());
     /// Use this command via Controller.setCommand
     return subgoal_command;
@@ -146,14 +145,14 @@ class raibotController {
     raisim::Vec<3> ee_pos_w, ee_vel_w, obj_pos, obj_vel, obj_avel;
     Eigen::Vector3d ee_to_obj, obj_to_target, ee_to_target;
 
-    auto* raibot = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot"));
+    auto* raibot = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot2"));
     raibot->getState(gc_, gv_);
     raisim::Vec<4> quat;
     quat[0] = gc_[3]; quat[1] = gc_[4]; quat[2] = gc_[5]; quat[3] = gc_[6];
-    raisim::quatToRotMat(quat, rot_);
-    bodyAngularVel_ = rot_.e().transpose() * gv_.segment(3, 3);
-    bodyLinearVel_ = rot_.e().transpose() * gv_.segment(0,3);
-    high_pro_obDouble_.segment(0,3) = rot_.e().row(2);
+    raisim::quatToRotMat(quat, rot_vicon);
+    bodyAngularVel_ = rot_vicon.e().transpose() * gv_.segment(3, 3);
+    bodyLinearVel_ = rot_vicon.e().transpose() * gv_.segment(0,3);
+    high_pro_obDouble_.segment(0,3) = rot_vicon.e().row(2);
     high_pro_obDouble_.segment(3,3) << bodyLinearVel_;
     high_pro_obDouble_.segment(6,3) << bodyAngularVel_;
     /// TODO add arm_link in the URDF
@@ -174,9 +173,9 @@ class raibotController {
     ee_to_target(2) = 0;
 
     /// Into robot frame
-    ee_to_obj = rot_.e().transpose() * ee_to_obj;
-    obj_to_target = rot_.e().transpose() * obj_to_target;
-    ee_to_target = rot_.e().transpose() * ee_to_target;
+    ee_to_obj = rot_vicon.e().transpose() * ee_to_obj;
+    obj_to_target = rot_vicon.e().transpose() * obj_to_target;
+    ee_to_target = rot_vicon.e().transpose() * ee_to_target;
 
     Eigen::Vector2d pos_temp;
     double dist_temp_min;
@@ -189,8 +188,8 @@ class raibotController {
     getposdist(ee_to_target, pos_temp, dist_temp_min);
     high_ext_obDouble_.segment(6,2) << pos_temp;
     high_ext_obDouble_.segment(8,1) << dist_temp_min;
-    high_ext_obDouble_.segment(9,3) << rot_.e().transpose() * obj_vel.e();
-    high_ext_obDouble_.segment(12,3) << rot_.e().transpose() * obj_avel.e();
+    high_ext_obDouble_.segment(9,3) << rot_vicon.e().transpose() * obj_vel.e();
+    high_ext_obDouble_.segment(12,3) << rot_vicon.e().transpose() * obj_avel.e();
     high_ext_obDouble_.segment(15,3) = Obj_->getOrientation().e().row(2);
     high_ext_obDouble_.segment(18,3) = Obj_->getOrientation().e().row(1);
     high_ext_obDouble_.segment(21,4) << 0, 0, 1, 0; /// Only for Box
@@ -275,6 +274,7 @@ private:
   Eigen::VectorXd gc_;
   Eigen::VectorXd gv_;
   raisim::Mat<3,3> rot_;
+  raisim::Mat<3,3> rot_vicon;
   Eigen::Vector3d bodyAngularVel_;
   Eigen::Vector3d bodyLinearVel_;
 
