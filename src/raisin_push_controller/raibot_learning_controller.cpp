@@ -18,7 +18,7 @@ raibotLearningController::raibotLearningController()
 : Controller("raisin_push_controller"),
   actor_(72, 2, {256, 128}),
   estimator_(36, 1, {128, 128}),
-  encoder_(52, 1),
+  encoder_(48, 1),
   high_actor_({128, 64}),
   param_(parameter::ParameterContainer::getRoot()["raibotLearningController"])
 //  button_press_buffer_(false)
@@ -113,6 +113,7 @@ bool raibotLearningController::create(raisim::World *world) {
       eoutVariance_(i) = std::stof(in_line);
     }
   }
+
   if (high_obsMean_file.is_open()) {
     for (int i = 0; i < high_obsMean_.size(); ++i) {
       std::getline(high_obsMean_file, in_line);
@@ -151,24 +152,33 @@ bool raibotLearningController::init(raisim::World *world) {
 bool raibotLearningController::advance(raisim::World *world) {
   /// 100Hz controller
   auto* raibot = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot"));
+  auto* raibot_vicon = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot_vicon"));
 
   /// For high level advance
-  if(clk_ % int(high_control_dt_ / communication_dt_ + 1e-10) == 0) {
-    raibotController_.updateHighObservation(world);
-    Eigen::VectorXf subgoal_command =
-        raibotController_.high_advance(world, high_obsScalingAndGetAction().head(3));
-    raibotController_.setCommand(subgoal_command);
-  }
-  /// For history update
-  if(clk_ % (int(control_dt_ *5 / (communication_dt_ + 1e-10))) == 0) {
-    raibotController_.updateHighHistory();
+  if(pd_clk_ >= 100)
+  {
+    if(clk_ % int(high_control_dt_ / communication_dt_ + 1e-10) == 0) {
+      raibotController_.updateHighObservation(world);
+      Eigen::VectorXf subgoal_command =
+          raibotController_.high_advance(world, high_obsScalingAndGetAction().head(3));
+      raibotController_.updateHighActionHistory(subgoal_command);
+      raibotController_.setCommand(subgoal_command);
+//      RSINFO(subgoal_command)
+    }
+    /// For history update
+    if(clk_ % (int(control_dt_ * 5 / (communication_dt_ + 1e-10))) == 0) {
+      raibotController_.updateHighHistory();
+    }
   }
   /// For low level advance
   if(clk_ % int(control_dt_ / communication_dt_ + 1e-10) == 0) {
     raibot->setControlMode(raisim::ControlMode::PD_PLUS_FEEDFORWARD_TORQUE);
     raibot->setPdGains(raibotController_.getJointPGain(), raibotController_.getJointDGain());
+    raibot_vicon->setControlMode(raisim::ControlMode::PD_PLUS_FEEDFORWARD_TORQUE);
+    raibot_vicon->setPdGains(raibotController_.getJointPGain(), raibotController_.getJointDGain());
 
     raibotController_.updateObservation(world);
+    raibotController_.updateHighObservation(world);
     raibotController_.advance(world, obsScalingAndGetAction().head(12));
 
     if (pd_clk_ < 100) {
@@ -183,21 +193,23 @@ bool raibotLearningController::advance(raisim::World *world) {
 }
 
 Eigen::VectorXf raibotLearningController::high_obsScalingAndGetAction() {
-  high_obs_ = raibotController_.getHighObservation().cast<float>();
+  raibotController_.getHighObservation(high_obs_);
+
   for (int i = 0; i < high_obs_.size(); ++i) {
     high_obs_(i) = (high_obs_(i) - high_obsMean_(i)) / std::sqrt(high_obsVariance_(i) + 1e-8);
-//    if (high_obs_(i) > 10) { high_obs_(i) = 10.0; }
-//    else if (high_obs_(i) < -10) { high_obs_(i) = -10.0; }
+    if (high_obs_(i) > 10) { high_obs_(i) = 10.0; }
+    else if (high_obs_(i) < -10) { high_obs_(i) = -10.0; }
   }
-  Eigen::Matrix<float, 185, 1> high_obs_in;
-  Eigen::Matrix<float, 52, 1> high_latent_in;
+//  RSINFO(high_obs_)
+  Eigen::Matrix<float, 165, 1> high_obs_in;
+  Eigen::Matrix<float, 48, 1> high_latent_in;
   high_obs_in << high_obs_;
   Eigen::VectorXf high_latent = encoder_.forward(high_obs_in);
   high_latent_in << high_latent;
   Eigen::VectorXf high_action = high_actor_.forward(high_latent_in);
   double high_action_norm = high_action.norm();
   high_action = high_action / (high_action_norm + 1e-8);
-  high_action = high_action * 2 * (1/((1+exp(-high_action_norm)) + 1e-8));
+  high_action = high_action * 2.5 * (1/((1+exp(-high_action_norm)) + 1e-8));
   return high_action;
 }
 
@@ -230,6 +242,7 @@ Eigen::VectorXf raibotLearningController::obsScalingAndGetAction() {
 
 bool raibotLearningController::warmUp(raisim::World *world) {
   auto* raibot = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot"));
+  auto* raibot_vicon = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot_vicon"));
 
   Eigen::VectorXd jointPGain(raibot->getDOF());
   Eigen::VectorXd jointDGain(raibot->getDOF());
@@ -241,6 +254,8 @@ bool raibotLearningController::warmUp(raisim::World *world) {
   raibotController_.getInitState(gc_init, gv_init);
   raibot->setPdGains(jointPGain, jointDGain);
   raibot->setPdTarget(gc_init, gv_init);
+  raibot_vicon->setPdGains(jointPGain, jointDGain);
+  raibot_vicon->setPdTarget(gc_init, gv_init);
 
   return true;
 }

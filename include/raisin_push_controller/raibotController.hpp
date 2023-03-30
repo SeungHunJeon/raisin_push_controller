@@ -10,6 +10,7 @@
 
 #include <set>
 #include "raisim/World.hpp"
+#include "raisin_parameter/parameter_container.hpp"
 
 namespace raisim {
 
@@ -18,13 +19,25 @@ class raibotController {
  public:
 
   bool create(raisim::World *world) {
-    auto* raibot = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot2"));
+    auto* raibot = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot"));
+    auto* raibot_vicon = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot_vicon"));
+    raisin::parameter::ParameterContainer & param_(raisin::parameter::ParameterContainer::getRoot()["Raibot"]);
+    param_.loadFromPackageParameterFile("raisin_raibot");
+    useVicon_ = param_("use_vicon");
+
+
     Obj_ = reinterpret_cast<raisim::SingleBodyObject*>(world->getObject("Object"));
+    Obj_vicon_ = reinterpret_cast<raisim::SingleBodyObject*>(world->getObject("Object_vicon"));
+    if(useVicon_)
+    {
+      Obj_->setPosition(10, 20, 1);
+    }
+
     auto Target_ = reinterpret_cast<raisim::SingleBodyObject*>(world->getObject("Target"));
-    obj_geometry << 1.0, 1.0, 0.55;
+    obj_geometry << 0.6, 0.54, 0.4;
     raisim::Vec<3> obj_pos;
     double phi = 0.2;
-    Obj_->getPosition(obj_pos);
+    Obj_vicon_->getPosition(obj_pos);
     obj_pos[0] = obj_pos[0] + sqrt(2)*cos(phi*2*M_PI);
     obj_pos[1] = obj_pos[1] + sqrt(2)*sin(phi*2*M_PI);
     Target_->setPosition(obj_pos[0], obj_pos[1], obj_pos[2]);
@@ -49,27 +62,31 @@ class raibotController {
     gc_init_ << 0, 0, 0.4725, 1, 0.0, 0.0, 0.0,
                 0.0, 0.559836, -1.119672, -0.0, 0.559836, -1.119672, 0.0, 0.559836, -1.119672, -0.0, 0.559836, -1.119672;
     raibot->setState(gc_init_, gv_init_);
-
+    raibot_vicon->setState(gc_init_, gv_init_);
     /// set pd gains
     jointPGain_.setZero(gvDim_);
     jointDGain_.setZero(gvDim_);
     jointPGain_.tail(nJoints_).setConstant(50.0);
     jointDGain_.tail(nJoints_).setConstant(0.5);
     raibot->setPdGains(jointPGain_, jointDGain_);
+    raibot_vicon->setPdGains(jointPGain_, jointDGain_);
     raibot->setGeneralizedForce(Eigen::VectorXd::Zero(gvDim_));
+    raibot_vicon->setGeneralizedForce(Eigen::VectorXd::Zero(gvDim_));
 
     /// vector dimensions
     obDim_ = 33;
-    high_obDim_ = 185;
     estDim_ = 8;
-    high_proDim_ = 9;
-    high_extDim_ = 28;
     actionDim_ = nJoints_;
+    high_proDim_ = 9;
+    high_extDim_ = 21;
     high_actionDim_ = 3;
     high_historyNum_ = 4;
+    high_blockDim_ = high_proDim_ + high_extDim_ + high_actionDim_;
+    high_obDim_ = high_blockDim_ * (high_historyNum_ + 1);
 
     high_pro_history_.resize(high_historyNum_);
     high_ext_history_.resize(high_historyNum_);
+    high_act_history_.resize(high_historyNum_+1);
 
     for (int i = 0; i < high_historyNum_; i++)
     {
@@ -77,16 +94,59 @@ class raibotController {
       high_pro_history_[i].setZero(high_proDim_);
     }
 
+    for (int i = 0; i < high_historyNum_ + 1; i++)
+    {
+      high_act_history_[i].setZero(high_actionDim_);
+    }
+
     high_pro_obDouble_.setZero(high_proDim_);
     high_ext_obDouble_.setZero(high_extDim_);
+    high_act_obDouble_.setZero(high_actionDim_);
 
-    high_obDouble_.setZero((high_historyNum_+1)*(high_proDim_ + high_extDim_));
+    high_obDouble_.setZero((high_historyNum_+1)*(high_blockDim_));
     actionMean_.setZero(actionDim_);
     actionStd_.setZero(actionDim_);
     high_actionMean_.setZero(high_actionDim_);
     high_actionStd_.setZero(high_actionDim_);
     obDouble_.setZero(obDim_);
+    high_obMean_.setZero((high_historyNum_+1)*(high_blockDim_));
+    high_obStd_.setZero((high_historyNum_+1)*(high_blockDim_));
     command_.setZero();
+
+    for (int i=0; i<high_historyNum_+1 ; i++) {
+      high_obMean_.segment((high_blockDim_)*i, high_blockDim_) <<
+                                                    0.0, 0.0, 1.4, /// gravity axis 3
+          Eigen::VectorXd::Constant(6, 0.0), /// body lin/ang vel 6
+          Eigen::VectorXd::Constant(2, 0.5),
+          Eigen::VectorXd::Constant(1, 1), /// end-effector to object distance
+          Eigen::VectorXd::Constant(2, 0.5),
+          Eigen::VectorXd::Constant(1, sqrt(2)), /// object to target distance
+          Eigen::VectorXd::Constant(2, 0.5),
+          Eigen::VectorXd::Constant(1, 2), /// end-effector to target distance
+          Eigen::VectorXd::Constant(3, 0.0), /// object to target velocity
+          Eigen::VectorXd::Constant(3, 0.0), /// object to target angular velocity
+          0.0, 0.0, 0.0, /// Orientation row(0)
+          1.0, 1.0, 1.0, /// object geometry
+          Eigen::VectorXd::Constant(high_actionDim_, 0.0); /// For action
+    }
+
+    for (int i=0; i<high_historyNum_+1 ; i++) {
+      high_obStd_.segment((high_blockDim_)*i, high_blockDim_) <<
+                                                   Eigen::VectorXd::Constant(3, 0.3), /// gravity axes
+          Eigen::VectorXd::Constant(3, 0.6), /// linear velocity
+          Eigen::VectorXd::Constant(3, 1.0), /// angular velocities
+          Eigen::VectorXd::Constant(2, 0.5),
+          Eigen::VectorXd::Constant(1, 0.5), /// end-effector to object distance
+          Eigen::VectorXd::Constant(2, 0.5),
+          Eigen::VectorXd::Constant(1, 0.6), /// object to target distance
+          Eigen::VectorXd::Constant(2, 0.5),
+          Eigen::VectorXd::Constant(1, 0.6), /// end-effector to target distance
+          Eigen::VectorXd::Constant(3, 0.5), /// object to target velocity
+          Eigen::VectorXd::Constant(3, 0.5), /// object to angular velocity
+          Eigen::VectorXd::Constant(3,0.5), /// Orientation row(1)
+          0.2, 0.2, 0.2, /// object geometry
+          Eigen::VectorXd::Constant(high_actionDim_, 0.5); /// for aciton
+    }
 
     /// action scaling
     actionMean_ = gc_init_.tail(nJoints_);
@@ -96,6 +156,7 @@ class raibotController {
     high_actionStd_.setConstant(1.0);
 
     updateObservation(world);
+    updateHighObservation(world);
 
     return true;
   }
@@ -105,6 +166,7 @@ class raibotController {
   bool reset(raisim::World *world) {
     command_ << 0., 0., 0.;
     updateObservation(world);
+    updateHighObservation(world);
     return true;
   }
 
@@ -117,12 +179,14 @@ class raibotController {
 
   bool advance(raisim::World *world, const Eigen::Ref<EigenVec>& action) {
     auto* raibot = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot"));
+    auto* raibot_vicon = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot_vicon"));
     /// action scaling
     pTarget12_ = action.cast<double>();
     pTarget12_ = pTarget12_.cwiseProduct(actionStd_);
     pTarget12_ += actionMean_;
     pTarget_.tail(nJoints_) = pTarget12_;
     raibot->setPdTarget(pTarget_, vTarget_);
+    raibot_vicon->setPdTarget(pTarget_, vTarget_);
     return true;
   }
 
@@ -131,6 +195,11 @@ class raibotController {
     dist = vec_dist.head(2).norm() + 1e-8;
     pos = vec_dist.head(2) * (1.0/dist);
     dist_min = std::min(2.0, dist);
+  }
+
+  void updateHighActionHistory(const Eigen::Ref<EigenVec> &action) {
+    std::rotate(high_act_history_.begin(), high_act_history_.begin()+1, high_act_history_.end());
+    high_act_history_[(high_historyNum_ + 1) - 1] = action.cast<double>();
   }
 
   void updateHighHistory() {
@@ -145,7 +214,13 @@ class raibotController {
     raisim::Vec<3> ee_pos_w, ee_vel_w, obj_pos, obj_vel, obj_avel;
     Eigen::Vector3d ee_to_obj, obj_to_target, ee_to_target;
 
-    auto* raibot = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot2"));
+    auto* raibot = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot"));
+
+    if(useVicon_)
+    {
+      raibot = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot_vicon"));
+    }
+
     raibot->getState(gc_, gv_);
     raisim::Vec<4> quat;
     quat[0] = gc_[3]; quat[1] = gc_[4]; quat[2] = gc_[5]; quat[3] = gc_[6];
@@ -158,9 +233,21 @@ class raibotController {
     /// TODO add arm_link in the URDF
     raibot->getFramePosition(raibot->getFrameIdxByLinkName("arm_link"), ee_pos_w);
     raibot->getFrameVelocity(raibot->getFrameIdxByLinkName("arm_link"), ee_vel_w);
-    Obj_->getPosition(obj_pos);
-    Obj_->getLinearVelocity(obj_vel);
-    Obj_->getAngularVelocity(obj_avel);
+    if(useVicon_)
+    {
+      Obj_vicon_->getPosition(obj_pos);
+      Obj_vicon_->getLinearVelocity(obj_vel);
+      Obj_vicon_->getAngularVelocity(obj_avel);
+    }
+
+    else
+    {
+      Obj_->getPosition(obj_pos);
+      Obj_->getLinearVelocity(obj_vel);
+      Obj_->getAngularVelocity(obj_avel);
+    }
+
+
 
     /// TODO add high_command subscriber
     ee_to_obj = (obj_pos.e() - ee_pos_w.e());
@@ -190,29 +277,33 @@ class raibotController {
     high_ext_obDouble_.segment(8,1) << dist_temp_min;
     high_ext_obDouble_.segment(9,3) << rot_vicon.e().transpose() * obj_vel.e();
     high_ext_obDouble_.segment(12,3) << rot_vicon.e().transpose() * obj_avel.e();
-    high_ext_obDouble_.segment(15,3) = Obj_->getOrientation().e().row(2);
-    high_ext_obDouble_.segment(18,3) = Obj_->getOrientation().e().row(1);
-    high_ext_obDouble_.segment(21,4) << 0, 0, 1, 0; /// Only for Box
-    /// TODO obj_geometry
-    high_ext_obDouble_.segment(25,3) << obj_geometry;
+    high_ext_obDouble_.segment(15,3) = rot_vicon.e().row(0) - Obj_->getOrientation().e().row(0);
+    high_ext_obDouble_.segment(18,3) << obj_geometry; /// Only for Box
     // update History
     for (int i=0; i< high_historyNum_; i++) {
-      high_obDouble_.segment((high_extDim_ + high_proDim_)*i,
+      high_obDouble_.segment(high_blockDim_*i,
                              high_proDim_) = high_pro_history_[i];
-      high_obDouble_.segment((high_extDim_ + high_proDim_)*i + high_proDim_,
+      high_obDouble_.segment(high_blockDim_*i + high_proDim_,
                         high_extDim_) = high_ext_history_[i];
+
+      high_obDouble_.segment(high_blockDim_*i + high_proDim_ + high_extDim_,
+                             high_actionDim_) = high_act_history_[i];
+
     }
     // current state
-    high_obDouble_.segment((high_extDim_ + high_proDim_)*high_historyNum_, high_proDim_) =
+    high_obDouble_.segment(high_blockDim_*high_historyNum_, high_proDim_) =
         high_pro_obDouble_;
-    high_obDouble_.segment((high_extDim_ + high_proDim_)*high_historyNum_ + high_proDim_, high_extDim_)
+    high_obDouble_.segment(high_blockDim_*high_historyNum_ + high_proDim_, high_extDim_)
         = high_ext_obDouble_;
+    high_obDouble_.segment(high_blockDim_*high_historyNum_ + high_proDim_ + high_extDim_, high_actionDim_)
+        = high_act_history_.back();
 
   }
 
   void updateObservation(raisim::World *world) {
     auto* raibot = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot"));
     raibot->getState(gc_, gv_);
+
     raisim::Vec<4> quat;
     quat[0] = gc_[3]; quat[1] = gc_[4]; quat[2] = gc_[5]; quat[3] = gc_[6];
     raisim::quatToRotMat(quat, rot_);
@@ -237,7 +328,10 @@ class raibotController {
 
   const Eigen::VectorXd& getObservation() { return obDouble_; }
 
-  const Eigen::VectorXd& getHighObservation() { return high_obDouble_; }
+  void getHighObservation(Eigen::VectorXf &observation) {
+    observation = (high_obDouble_ - high_obMean_).cwiseQuotient(high_obStd_).cast<float>();
+  }
+//    return high_obDouble_;}
 
   int getHighHistoryNum() const {return high_historyNum_;}
 
@@ -286,18 +380,22 @@ private:
   int high_proDim_;
   int high_extDim_;
   int high_actionDim_;
+  int high_blockDim_;
   Eigen::Vector3d command_;
   Eigen::Vector3d high_command_;
   Eigen::Vector3d obj_geometry;
   Eigen::VectorXd obDouble_;
-  Eigen::VectorXd high_obDouble_;
+  Eigen::VectorXd high_obDouble_, high_obMean_, high_obStd_;;
   Eigen::VectorXd high_pro_obDouble_;
   Eigen::VectorXd high_ext_obDouble_;
+  Eigen::VectorXd high_act_obDouble_;
   std::vector<Eigen::VectorXd> high_pro_history_;
   std::vector<Eigen::VectorXd> high_ext_history_;
+  std::vector<Eigen::VectorXd> high_act_history_;
 
-
+  bool useVicon_ = false;
   raisim::SingleBodyObject* Obj_;
+  raisim::SingleBodyObject* Obj_vicon_;
   Eigen::VectorXd pTarget_;
   Eigen::VectorXd pTarget12_;
   Eigen::VectorXd vTarget_;

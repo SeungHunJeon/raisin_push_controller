@@ -65,8 +65,8 @@ class raibotLearningController : public Controller {
   raisim::nn::LSTM_MLP<float, 41, 12, raisim::nn::ActivationType::leaky_relu> actor_;
   raisim::nn::LSTM_MLP<float, 30, 8, raisim::nn::ActivationType::leaky_relu> estimator_;
 
-  raisim::nn::LSTM<float, 185, 52, raisim::nn::ActivationType::leaky_relu> encoder_;
-  raisim::nn::Linear<float, 52, 3, raisim::nn::ActivationType::leaky_relu> high_actor_;
+  raisim::nn::LSTM<float, 165, 48, raisim::nn::ActivationType::leaky_relu> encoder_;
+  raisim::nn::Linear<float, 48, 3, raisim::nn::ActivationType::leaky_relu> high_actor_;
 
 
   int clk_ = 0;
