@@ -18,7 +18,7 @@ raibotLearningController::raibotLearningController()
 : Controller("raisin_push_controller"),
   actor_(72, 2, {256, 128}),
   estimator_(36, 1, {128, 128}),
-  encoder_(48, 1),
+  encoder_(96, 2),
   high_actor_({128, 64}),
   param_(parameter::ParameterContainer::getRoot()["raibotLearningController"])
 //  button_press_buffer_(false)
@@ -165,25 +165,27 @@ bool raibotLearningController::advance(raisim::World *world) {
       raibotController_.setCommand(subgoal_command);
 //      RSINFO(subgoal_command)
     }
-    /// For history update
-    if(clk_ % (int(control_dt_ * 5 / (communication_dt_ + 1e-10))) == 0) {
-      raibotController_.updateHighHistory();
-    }
+//    /// For history update
+//    if(clk_ % (int(control_dt_ * 5 / (communication_dt_ + 1e-10))) == 0) {
+//
+//    }
   }
   /// For low level advance
   if(clk_ % int(control_dt_ / communication_dt_ + 1e-10) == 0) {
-    raibot->setControlMode(raisim::ControlMode::PD_PLUS_FEEDFORWARD_TORQUE);
-    raibot->setPdGains(raibotController_.getJointPGain(), raibotController_.getJointDGain());
-    raibot_vicon->setControlMode(raisim::ControlMode::PD_PLUS_FEEDFORWARD_TORQUE);
-    raibot_vicon->setPdGains(raibotController_.getJointPGain(), raibotController_.getJointDGain());
-
-    raibotController_.updateObservation(world);
-    raibotController_.updateHighObservation(world);
-    raibotController_.advance(world, obsScalingAndGetAction().head(12));
-
     if (pd_clk_ < 100) {
       warmUp(world);
       ++pd_clk_;
+    }
+
+    else {
+      raibot->setControlMode(raisim::ControlMode::PD_PLUS_FEEDFORWARD_TORQUE);
+      raibot->setPdGains(raibotController_.getJointPGain(), raibotController_.getJointDGain());
+      raibot_vicon->setControlMode(raisim::ControlMode::PD_PLUS_FEEDFORWARD_TORQUE);
+      raibot_vicon->setPdGains(raibotController_.getJointPGain(), raibotController_.getJointDGain());
+      raibotController_.updateHighHistory();
+      raibotController_.updateObservation(world);
+      raibotController_.updateHighObservation(world);
+      raibotController_.advance(world, obsScalingAndGetAction().head(12));
     }
 
     log_->append(raibotController_.getObservation(), estUnscaled_, raibotController_.getJointPTarget());
@@ -201,12 +203,14 @@ Eigen::VectorXf raibotLearningController::high_obsScalingAndGetAction() {
     else if (high_obs_(i) < -10) { high_obs_(i) = -10.0; }
   }
 //  RSINFO(high_obs_)
-  Eigen::Matrix<float, 165, 1> high_obs_in;
-  Eigen::Matrix<float, 48, 1> high_latent_in;
+  Eigen::Matrix<float, 720, 1> high_obs_in;
+  Eigen::Matrix<float, 96, 1> high_latent_in;
   high_obs_in << high_obs_;
   Eigen::VectorXf high_latent = encoder_.forward(high_obs_in);
   high_latent_in << high_latent;
+//  RSINFO(high_latent_in)
   Eigen::VectorXf high_action = high_actor_.forward(high_latent_in);
+//  RSINFO(high_action)
   double high_action_norm = high_action.norm();
   high_action = high_action / (high_action_norm + 1e-8);
   high_action = high_action * 2.5 * (1/((1+exp(-high_action_norm)) + 1e-8));

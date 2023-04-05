@@ -77,10 +77,10 @@ class raibotController {
     obDim_ = 33;
     estDim_ = 8;
     actionDim_ = nJoints_;
-    high_proDim_ = 9;
-    high_extDim_ = 21;
+    high_proDim_ = 15;
+    high_extDim_ = 18;
     high_actionDim_ = 3;
-    high_historyNum_ = 4;
+    high_historyNum_ = 19;
     high_blockDim_ = high_proDim_ + high_extDim_ + high_actionDim_;
     high_obDim_ = high_blockDim_ * (high_historyNum_ + 1);
 
@@ -109,44 +109,8 @@ class raibotController {
     high_actionMean_.setZero(high_actionDim_);
     high_actionStd_.setZero(high_actionDim_);
     obDouble_.setZero(obDim_);
-    high_obMean_.setZero((high_historyNum_+1)*(high_blockDim_));
-    high_obStd_.setZero((high_historyNum_+1)*(high_blockDim_));
     command_.setZero();
 
-    for (int i=0; i<high_historyNum_+1 ; i++) {
-      high_obMean_.segment((high_blockDim_)*i, high_blockDim_) <<
-                                                    0.0, 0.0, 1.4, /// gravity axis 3
-          Eigen::VectorXd::Constant(6, 0.0), /// body lin/ang vel 6
-          Eigen::VectorXd::Constant(2, 0.5),
-          Eigen::VectorXd::Constant(1, 1), /// end-effector to object distance
-          Eigen::VectorXd::Constant(2, 0.5),
-          Eigen::VectorXd::Constant(1, sqrt(2)), /// object to target distance
-          Eigen::VectorXd::Constant(2, 0.5),
-          Eigen::VectorXd::Constant(1, 2), /// end-effector to target distance
-          Eigen::VectorXd::Constant(3, 0.0), /// object to target velocity
-          Eigen::VectorXd::Constant(3, 0.0), /// object to target angular velocity
-          0.0, 0.0, 0.0, /// Orientation row(0)
-          1.0, 1.0, 1.0, /// object geometry
-          Eigen::VectorXd::Constant(high_actionDim_, 0.0); /// For action
-    }
-
-    for (int i=0; i<high_historyNum_+1 ; i++) {
-      high_obStd_.segment((high_blockDim_)*i, high_blockDim_) <<
-                                                   Eigen::VectorXd::Constant(3, 0.3), /// gravity axes
-          Eigen::VectorXd::Constant(3, 0.6), /// linear velocity
-          Eigen::VectorXd::Constant(3, 1.0), /// angular velocities
-          Eigen::VectorXd::Constant(2, 0.5),
-          Eigen::VectorXd::Constant(1, 0.5), /// end-effector to object distance
-          Eigen::VectorXd::Constant(2, 0.5),
-          Eigen::VectorXd::Constant(1, 0.6), /// object to target distance
-          Eigen::VectorXd::Constant(2, 0.5),
-          Eigen::VectorXd::Constant(1, 0.6), /// end-effector to target distance
-          Eigen::VectorXd::Constant(3, 0.5), /// object to target velocity
-          Eigen::VectorXd::Constant(3, 0.5), /// object to angular velocity
-          Eigen::VectorXd::Constant(3,0.5), /// Orientation row(1)
-          0.2, 0.2, 0.2, /// object geometry
-          Eigen::VectorXd::Constant(high_actionDim_, 0.5); /// for aciton
-    }
 
     /// action scaling
     actionMean_ = gc_init_.tail(nJoints_);
@@ -227,12 +191,20 @@ class raibotController {
     raisim::quatToRotMat(quat, rot_vicon);
     bodyAngularVel_ = rot_vicon.e().transpose() * gv_.segment(3, 3);
     bodyLinearVel_ = rot_vicon.e().transpose() * gv_.segment(0,3);
+    raibot->getFramePosition(raibot->getFrameIdxByLinkName("arm_link"), ee_pos_w);
+    raibot->getFrameVelocity(raibot->getFrameIdxByLinkName("arm_link"), ee_vel_w);
+
+    raisim::Vec<3> LF_FOOT_Pos_w_, RF_FOOT_Pos_w_;
+    raibot->getFramePosition(raibot->getFrameIdxByLinkName("LF_FOOT"), LF_FOOT_Pos_w_);
+    raibot->getFramePosition(raibot->getFrameIdxByLinkName("RF_FOOT"), RF_FOOT_Pos_w_);
+
     high_pro_obDouble_.segment(0,3) = rot_vicon.e().row(2);
     high_pro_obDouble_.segment(3,3) << bodyLinearVel_;
     high_pro_obDouble_.segment(6,3) << bodyAngularVel_;
+    high_pro_obDouble_.segment(9,3) = rot_vicon.e().transpose()*(LF_FOOT_Pos_w_.e() - ee_pos_w.e());
+    high_pro_obDouble_.segment(12,3) = rot_vicon.e().transpose()*(RF_FOOT_Pos_w_.e() - ee_pos_w.e());
     /// TODO add arm_link in the URDF
-    raibot->getFramePosition(raibot->getFrameIdxByLinkName("arm_link"), ee_pos_w);
-    raibot->getFrameVelocity(raibot->getFrameIdxByLinkName("arm_link"), ee_vel_w);
+
     if(useVicon_)
     {
       Obj_vicon_->getPosition(obj_pos);
@@ -276,9 +248,8 @@ class raibotController {
     high_ext_obDouble_.segment(6,2) << pos_temp;
     high_ext_obDouble_.segment(8,1) << dist_temp_min;
     high_ext_obDouble_.segment(9,3) << rot_vicon.e().transpose() * obj_vel.e();
-    high_ext_obDouble_.segment(12,3) << rot_vicon.e().transpose() * obj_avel.e();
-    high_ext_obDouble_.segment(15,3) = rot_vicon.e().row(0) - Obj_->getOrientation().e().row(0);
-    high_ext_obDouble_.segment(18,3) << obj_geometry; /// Only for Box
+    high_ext_obDouble_.segment(12,3) = rot_vicon.e().row(0) - Obj_->getOrientation().e().row(0);
+    high_ext_obDouble_.segment(15,3) << obj_geometry; /// Only for Box
     // update History
     for (int i=0; i< high_historyNum_; i++) {
       high_obDouble_.segment(high_blockDim_*i,
@@ -329,7 +300,8 @@ class raibotController {
   const Eigen::VectorXd& getObservation() { return obDouble_; }
 
   void getHighObservation(Eigen::VectorXf &observation) {
-    observation = (high_obDouble_ - high_obMean_).cwiseQuotient(high_obStd_).cast<float>();
+    observation = high_obDouble_.cast<float>();
+//    RSINFO(observation)
   }
 //    return high_obDouble_;}
 
@@ -385,7 +357,7 @@ private:
   Eigen::Vector3d high_command_;
   Eigen::Vector3d obj_geometry;
   Eigen::VectorXd obDouble_;
-  Eigen::VectorXd high_obDouble_, high_obMean_, high_obStd_;;
+  Eigen::VectorXd high_obDouble_;
   Eigen::VectorXd high_pro_obDouble_;
   Eigen::VectorXd high_ext_obDouble_;
   Eigen::VectorXd high_act_obDouble_;
