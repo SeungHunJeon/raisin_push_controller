@@ -51,6 +51,7 @@ bool raibotLearningController::create(raisim::World *world) {
   communication_dt_ = 0.00025;
   high_control_dt_ = 0.2;
   raibotController_.create(world);
+  subgoal_command.setZero(3);
 
 //  normal_limit_ = param_("command_normal_mode");
 //  boost_limit_ = param_("command_boost_mode");
@@ -135,11 +136,15 @@ bool raibotLearningController::create(raisim::World *world) {
   high_obsMean_file.close();
   high_obsVariance_file.close();
   estUnscaled_.setZero(raibotController_.getEstDim());
+  high_obs_.setZero(raibotController_.getHighObDim());
+  )
   log_ = std::make_unique<raisin::DataLogger>(
       "control.raisin_data",
       "observation", raibotController_.getObservation(),
       "estimation", estUnscaled_,
-      "targetPosition", raibotController_.getJointPTarget()
+      "targetPosition", raibotController_.getJointPTarget(),
+      "subgoal_command", subgoal_command,
+      "high_level_observation", high_obs_
   );
   return true;
 }
@@ -159,7 +164,7 @@ bool raibotLearningController::advance(raisim::World *world) {
   {
     if(clk_ % int(high_control_dt_ / communication_dt_ + 1e-10) == 0) {
       raibotController_.updateHighObservation(world);
-      Eigen::VectorXf subgoal_command =
+      subgoal_command =
           raibotController_.high_advance(world, high_obsScalingAndGetAction().head(3));
       raibotController_.updateHighActionHistory(subgoal_command);
       raibotController_.setCommand(subgoal_command);
@@ -188,7 +193,7 @@ bool raibotLearningController::advance(raisim::World *world) {
       raibotController_.advance(world, obsScalingAndGetAction().head(12));
     }
 
-    log_->append(raibotController_.getObservation(), estUnscaled_, raibotController_.getJointPTarget());
+    log_->append(raibotController_.getObservation(), estUnscaled_, raibotController_.getJointPTarget(), subgoal_command, high_obs_);
   }
   clk_++;
   return true;
