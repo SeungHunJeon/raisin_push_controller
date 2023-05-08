@@ -34,7 +34,9 @@ class raibotController {
     }
 
     auto Target_ = reinterpret_cast<raisim::SingleBodyObject*>(world->getObject("Target"));
-    obj_geometry << 0.6, 0.54, 0.4;
+    auto Target_box = reinterpret_cast<raisim::Box*>(world->getObject("Target"));
+    obj_geometry = Target_box->getDim();
+    RSINFO(obj_geometry.e())
     raisim::Vec<3> obj_pos;
     double phi = 0.2;
     Obj_vicon_->getPosition(obj_pos);
@@ -249,7 +251,7 @@ class raibotController {
     high_ext_obDouble_.segment(8,1) << dist_temp_min;
     high_ext_obDouble_.segment(9,3) << rot_vicon.e().transpose() * obj_vel.e();
     high_ext_obDouble_.segment(12,3) = rot_vicon.e().row(0) - Obj_->getOrientation().e().row(0);
-    high_ext_obDouble_.segment(15,3) << obj_geometry; /// Only for Box
+    high_ext_obDouble_.segment(15,3) << obj_geometry.e(); /// Only for Box
     // update History
     for (int i=0; i< high_historyNum_; i++) {
       high_obDouble_.segment(high_blockDim_*i,
@@ -343,6 +345,7 @@ private:
   raisim::Mat<3,3> rot_vicon;
   Eigen::Vector3d bodyAngularVel_;
   Eigen::Vector3d bodyLinearVel_;
+  raisim::Vec<3> obj_geometry;
 
   int obDim_;
   int high_obDim_;
@@ -355,7 +358,6 @@ private:
   int high_blockDim_;
   Eigen::Vector3d command_;
   Eigen::Vector3d high_command_;
-  Eigen::Vector3d obj_geometry;
   Eigen::VectorXd obDouble_;
   Eigen::VectorXd high_obDouble_;
   Eigen::VectorXd high_pro_obDouble_;

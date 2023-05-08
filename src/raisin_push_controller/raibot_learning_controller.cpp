@@ -137,7 +137,6 @@ bool raibotLearningController::create(raisim::World *world) {
   high_obsVariance_file.close();
   estUnscaled_.setZero(raibotController_.getEstDim());
   high_obs_.setZero(raibotController_.getHighObDim());
-  )
   log_ = std::make_unique<raisin::DataLogger>(
       "control.raisin_data",
       "observation", raibotController_.getObservation(),
