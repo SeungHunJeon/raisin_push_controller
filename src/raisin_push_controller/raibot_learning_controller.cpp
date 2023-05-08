@@ -50,6 +50,7 @@ bool raibotLearningController::create(raisim::World *world) {
   control_dt_ = 0.01;
   communication_dt_ = 0.00025;
   high_control_dt_ = 0.2;
+
   raibotController_.create(world);
   subgoal_command.setZero(3);
 
@@ -65,9 +66,10 @@ bool raibotLearningController::create(raisim::World *world) {
   std::filesystem::path eout_mean_path = pack_path / network_path / "eout_mean.csv";
   std::filesystem::path eout_var_path = pack_path / network_path / "eout_var.csv";
   std::filesystem::path high_actor_path = pack_path / network_path / "high_actor.txt";
-  std::filesystem::path high_obs_mean_path = pack_path / network_path / "high_obs_mean.csv";
-  std::filesystem::path high_obs_var_path = pack_path / network_path / "high_obs_var.csv";
   std::filesystem::path encoder_path = pack_path / network_path / "encoder.txt";
+  std::filesystem::path high_obs_mean_path = pack_path / network_path / "high_obs_mean.csv";
+//  RSINFO(high_obs_mean_path)
+  std::filesystem::path high_obs_var_path = pack_path / network_path / "high_obs_var.csv";
 
   actor_.readParamFromTxt(actor_path.string());
   estimator_.readParamFromTxt(estimator_path.string());
@@ -84,12 +86,12 @@ bool raibotLearningController::create(raisim::World *world) {
   obs_.setZero(raibotController_.getObDim());
   obsMean_.setZero(raibotController_.getObDim());
   obsVariance_.setZero(raibotController_.getObDim());
+  high_obsMean_.setZero(raibotController_.getHighObDim());
+  high_obsVariance_.setZero(raibotController_.getHighObDim());
   eoutMean_.setZero(raibotController_.getEstDim());
   eoutVariance_.setZero(raibotController_.getEstDim());
   actor_input_.setZero(raibotController_.getObDim() + raibotController_.getEstDim());
 /// TODO
-  high_obsMean_.setZero(raibotController_.getHighObDim());
-  high_obsVariance_.setZero(raibotController_.getHighObDim());
   if (obsMean_file.is_open()) {
     for (int i = 0; i < obsMean_.size(); ++i) {
       std::getline(obsMean_file, in_line, ' ');
@@ -114,20 +116,20 @@ bool raibotLearningController::create(raisim::World *world) {
       eoutVariance_(i) = std::stof(in_line);
     }
   }
-
   if (high_obsMean_file.is_open()) {
     for (int i = 0; i < high_obsMean_.size(); ++i) {
       std::getline(high_obsMean_file, in_line);
       high_obsMean_(i) = std::stof(in_line);
     }
   }
-
+  RSINFO(high_obsMean_)
   if (high_obsVariance_file.is_open()) {
     for (int i = 0; i < high_obsVariance_.size(); ++i) {
       std::getline(high_obsVariance_file, in_line);
       high_obsVariance_(i) = std::stof(in_line);
     }
   }
+//  RSINFO(high_obsVariance_)
 
   obsMean_file.close();
   obsVariance_file.close();
@@ -165,6 +167,7 @@ bool raibotLearningController::advance(raisim::World *world) {
       raibotController_.updateHighObservation(world);
       subgoal_command =
           raibotController_.high_advance(world, high_obsScalingAndGetAction().head(3));
+//      RSINFO(subgoal_command);
       raibotController_.updateHighActionHistory(subgoal_command);
       raibotController_.setCommand(subgoal_command);
 //      RSINFO(subgoal_command)
@@ -184,11 +187,11 @@ bool raibotLearningController::advance(raisim::World *world) {
     else {
       raibot->setControlMode(raisim::ControlMode::PD_PLUS_FEEDFORWARD_TORQUE);
       raibot->setPdGains(raibotController_.getJointPGain(), raibotController_.getJointDGain());
-      raibot_vicon->setControlMode(raisim::ControlMode::PD_PLUS_FEEDFORWARD_TORQUE);
-      raibot_vicon->setPdGains(raibotController_.getJointPGain(), raibotController_.getJointDGain());
+//      raibot_vicon->setControlMode(raisim::ControlMode::PD_PLUS_FEEDFORWARD_TORQUE);
+//      raibot_vicon->setPdGains(raibotController_.getJointPGain(), raibotController_.getJointDGain());
       raibotController_.updateHighHistory();
       raibotController_.updateObservation(world);
-      raibotController_.updateHighObservation(world);
+      raibotController_.updateHighStateVariable(world);
       raibotController_.advance(world, obsScalingAndGetAction().head(12));
     }
 
@@ -201,13 +204,24 @@ bool raibotLearningController::advance(raisim::World *world) {
 Eigen::VectorXf raibotLearningController::high_obsScalingAndGetAction() {
   raibotController_.getHighObservation(high_obs_);
 
+
   for (int i = 0; i < high_obs_.size(); ++i) {
     high_obs_(i) = (high_obs_(i) - high_obsMean_(i)) / std::sqrt(high_obsVariance_(i) + 1e-8);
-    if (high_obs_(i) > 10) { high_obs_(i) = 10.0; }
-    else if (high_obs_(i) < -10) { high_obs_(i) = -10.0; }
+//    if (high_obs_(i) > 10) { high_obs_(i) = 10.0; }
+//    else if (high_obs_(i) < -10) { high_obs_(i) = -10.0; }
   }
+
 //  RSINFO(high_obs_)
-  Eigen::Matrix<float, 720, 1> high_obs_in;
+
+  std::ofstream file("obs.txt");
+  if (file.is_open())
+  {
+    file << high_obs_ << '\n';
+//    file << "m" << '\n' <<  colm(m) << '\n';
+  }
+
+//  RSINFO(high_obs_)
+  Eigen::Matrix<float, 780, 1> high_obs_in;
   Eigen::Matrix<float, 96, 1> high_latent_in;
   high_obs_in << high_obs_;
   Eigen::VectorXf high_latent = encoder_.forward(high_obs_in);

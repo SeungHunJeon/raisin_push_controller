@@ -54,18 +54,18 @@ class raibotLearningController : public Controller {
   Eigen::VectorXf actor_input_;
 
   Eigen::VectorXf obsMean_;
-  Eigen::VectorXf high_obsMean_;
   Eigen::VectorXf obsVariance_;
-  Eigen::VectorXf high_obsVariance_;
   Eigen::VectorXf eoutMean_;
   Eigen::VectorXf eoutVariance_;
+  Eigen::VectorXf high_obsMean_;
+  Eigen::VectorXf high_obsVariance_;
   Eigen::VectorXf subgoal_command;
   Eigen::VectorXf high_obs_;
 
   raisim::nn::LSTM_MLP<float, 41, 12, raisim::nn::ActivationType::leaky_relu> actor_;
   raisim::nn::LSTM_MLP<float, 30, 8, raisim::nn::ActivationType::leaky_relu> estimator_;
 
-  raisim::nn::LSTM<float, 720, 96, raisim::nn::ActivationType::leaky_relu> encoder_;
+  raisim::nn::LSTM<float, 780, 96, raisim::nn::ActivationType::leaky_relu> encoder_;
   raisim::nn::Linear<float, 96, 3, raisim::nn::ActivationType::leaky_relu> high_actor_;
 
 
