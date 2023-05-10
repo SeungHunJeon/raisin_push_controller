@@ -20,7 +20,6 @@ class raibotController {
 
   bool create(raisim::World *world) {
     auto* raibot = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot"));
-    auto* raibot_vicon = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot_vicon"));
     raisin::parameter::ParameterContainer & param_(raisin::parameter::ParameterContainer::getRoot()["Raibot"]);
     param_.loadFromPackageParameterFile("raisin_raibot");
     useVicon_ = param_("use_vicon");
@@ -39,7 +38,7 @@ class raibotController {
     obj_geometry = Target_box->getDim();
 //    RSINFO(obj_geometry.e())
     raisim::Vec<3> obj_pos;
-    double phi = 0.2;
+    double phi = 0.0;
     Obj_vicon_->getPosition(obj_pos);
     obj_pos[0] = obj_pos[0] + sqrt(2)*cos(phi*2*M_PI);
     obj_pos[1] = obj_pos[1] + sqrt(2)*sin(phi*2*M_PI);
@@ -65,16 +64,13 @@ class raibotController {
     gc_init_ << 0, 0, 0.4725, 1, 0.0, 0.0, 0.0,
                 0.0, 0.559836, -1.119672, -0.0, 0.559836, -1.119672, 0.0, 0.559836, -1.119672, -0.0, 0.559836, -1.119672;
     raibot->setState(gc_init_, gv_init_);
-    raibot_vicon->setState(gc_init_, gv_init_);
     /// set pd gains
     jointPGain_.setZero(gvDim_);
     jointDGain_.setZero(gvDim_);
     jointPGain_.tail(nJoints_).setConstant(50.0);
     jointDGain_.tail(nJoints_).setConstant(0.5);
     raibot->setPdGains(jointPGain_, jointDGain_);
-    raibot_vicon->setPdGains(jointPGain_, jointDGain_);
     raibot->setGeneralizedForce(Eigen::VectorXd::Zero(gvDim_));
-    raibot_vicon->setGeneralizedForce(Eigen::VectorXd::Zero(gvDim_));
 
     /// vector dimensions
     obDim_ = 33;
@@ -166,14 +162,12 @@ class raibotController {
 
   bool advance(raisim::World *world, const Eigen::Ref<EigenVec>& action) {
     auto* raibot = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot"));
-    auto* raibot_vicon = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot_vicon"));
     /// action scaling
     pTarget12_ = action.cast<double>();
     pTarget12_ = pTarget12_.cwiseProduct(actionStd_);
     pTarget12_ += actionMean_;
     pTarget_.tail(nJoints_) = pTarget12_;
     raibot->setPdTarget(pTarget_, vTarget_);
-//    raibot_vicon->setPdTarget(pTarget_, vTarget_);
     return true;
   }
 
@@ -202,17 +196,12 @@ class raibotController {
 
     auto* raibot = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot"));
 
-    if(useVicon_)
-    {
-      raibot = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot_vicon"));
-    }
-
     raibot->getState(gc_, gv_);
     raisim::Vec<4> quat;
     quat[0] = gc_[3]; quat[1] = gc_[4]; quat[2] = gc_[5]; quat[3] = gc_[6];
-    raisim::quatToRotMat(quat, rot_vicon);
-    bodyAngularVel_ = rot_vicon.e().transpose() * gv_.segment(3, 3);
-    bodyLinearVel_ = rot_vicon.e().transpose() * gv_.segment(0,3);
+    raisim::quatToRotMat(quat, rot_);
+    bodyAngularVel_ = rot_.e().transpose() * gv_.segment(3, 3);
+    bodyLinearVel_ = rot_.e().transpose() * gv_.segment(0,3);
     raibot->getFramePosition(raibot->getFrameIdxByLinkName("arm_link"), ee_pos_w);
     raibot->getFrameVelocity(raibot->getFrameIdxByLinkName("arm_link"), ee_vel_w);
 
@@ -220,11 +209,11 @@ class raibotController {
     raibot->getFramePosition(raibot->getFrameIdxByLinkName("LF_FOOT"), LF_FOOT_Pos_w_);
     raibot->getFramePosition(raibot->getFrameIdxByLinkName("RF_FOOT"), RF_FOOT_Pos_w_);
 
-    high_pro_obDouble_.segment(0,3) = rot_vicon.e().row(2);
+    high_pro_obDouble_.segment(0,3) = rot_.e().row(2);
     high_pro_obDouble_.segment(3,3) << bodyLinearVel_;
     high_pro_obDouble_.segment(6,3) << bodyAngularVel_;
-    high_pro_obDouble_.segment(9,3) = rot_vicon.e().transpose()*(LF_FOOT_Pos_w_.e() - ee_pos_w.e());
-    high_pro_obDouble_.segment(12,3) = rot_vicon.e().transpose()*(RF_FOOT_Pos_w_.e() - ee_pos_w.e());
+    high_pro_obDouble_.segment(9,3) = rot_.e().transpose()*(LF_FOOT_Pos_w_.e() - ee_pos_w.e());
+    high_pro_obDouble_.segment(12,3) = rot_.e().transpose()*(RF_FOOT_Pos_w_.e() - ee_pos_w.e());
 //    RSINFO(high_pro_obDouble_)
     /// TODO add arm_link in the URDF
 
@@ -255,9 +244,9 @@ class raibotController {
     ee_to_target(2) = 0;
 
     /// Into robot frame
-    ee_to_obj = rot_vicon.e().transpose() * ee_to_obj;
-    obj_to_target = rot_vicon.e().transpose() * obj_to_target;
-    ee_to_target = rot_vicon.e().transpose() * ee_to_target;
+    ee_to_obj = rot_.e().transpose() * ee_to_obj;
+    obj_to_target = rot_.e().transpose() * obj_to_target;
+    ee_to_target = rot_.e().transpose() * ee_to_target;
 
     Eigen::Vector2d pos_temp;
     double dist_temp_min;
@@ -283,14 +272,14 @@ class raibotController {
     dist_temp_min = std::min(2.0, dist_temp_);
     high_ext_obDouble_.segment(8,1) << dist_temp_min;
 //    RSINFO(dist_temp_min)
-    high_ext_obDouble_.segment(9,3) << rot_vicon.e().transpose() * obj_vel.e();
+    high_ext_obDouble_.segment(9,3) << rot_.e().transpose() * obj_vel.e();
 //    RSINFO(high_ext_obDouble_)
     if(useVicon_)
     {
-      high_ext_obDouble_.segment(12,3) = rot_vicon.e().row(0) - Obj_vicon_->getOrientation().e().row(0);
+      high_ext_obDouble_.segment(12,3) = rot_.e().row(0) - Obj_vicon_->getOrientation().e().row(0);
     }
     else {
-      high_ext_obDouble_.segment(12,3) = rot_vicon.e().row(0) - Obj_->getOrientation().e().row(0);
+      high_ext_obDouble_.segment(12,3) = rot_.e().row(0) - Obj_->getOrientation().e().row(0);
     }
 
     high_ext_obDouble_.segment(15,3) << classify_vector_; /// Only for Box
@@ -389,7 +378,6 @@ private:
   Eigen::VectorXd gc_;
   Eigen::VectorXd gv_;
   raisim::Mat<3,3> rot_;
-  raisim::Mat<3,3> rot_vicon;
   Eigen::Vector3d bodyAngularVel_;
   Eigen::Vector3d bodyLinearVel_;
   raisim::Vec<3> obj_geometry;

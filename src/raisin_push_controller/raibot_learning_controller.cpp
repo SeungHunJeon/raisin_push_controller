@@ -158,7 +158,6 @@ bool raibotLearningController::init(raisim::World *world) {
 bool raibotLearningController::advance(raisim::World *world) {
   /// 100Hz controller
   auto* raibot = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot"));
-  auto* raibot_vicon = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot_vicon"));
 
   /// For high level advance
   if(pd_clk_ >= 100)
@@ -187,8 +186,6 @@ bool raibotLearningController::advance(raisim::World *world) {
     else {
       raibot->setControlMode(raisim::ControlMode::PD_PLUS_FEEDFORWARD_TORQUE);
       raibot->setPdGains(raibotController_.getJointPGain(), raibotController_.getJointDGain());
-//      raibot_vicon->setControlMode(raisim::ControlMode::PD_PLUS_FEEDFORWARD_TORQUE);
-//      raibot_vicon->setPdGains(raibotController_.getJointPGain(), raibotController_.getJointDGain());
       raibotController_.updateHighHistory();
       raibotController_.updateObservation(world);
       raibotController_.updateHighStateVariable(world);
@@ -213,12 +210,12 @@ Eigen::VectorXf raibotLearningController::high_obsScalingAndGetAction() {
 
 //  RSINFO(high_obs_)
 
-  std::ofstream file("obs.txt");
-  if (file.is_open())
-  {
-    file << high_obs_ << '\n';
-//    file << "m" << '\n' <<  colm(m) << '\n';
-  }
+//  std::ofstream file("obs.txt");
+//  if (file.is_open())
+//  {
+//    file << high_obs_ << '\n';
+////    file << "m" << '\n' <<  colm(m) << '\n';
+//  }
 
 //  RSINFO(high_obs_)
   Eigen::Matrix<float, 780, 1> high_obs_in;
@@ -264,7 +261,6 @@ Eigen::VectorXf raibotLearningController::obsScalingAndGetAction() {
 
 bool raibotLearningController::warmUp(raisim::World *world) {
   auto* raibot = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot"));
-  auto* raibot_vicon = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot_vicon"));
 
   Eigen::VectorXd jointPGain(raibot->getDOF());
   Eigen::VectorXd jointDGain(raibot->getDOF());
@@ -276,8 +272,6 @@ bool raibotLearningController::warmUp(raisim::World *world) {
   raibotController_.getInitState(gc_init, gv_init);
   raibot->setPdGains(jointPGain, jointDGain);
   raibot->setPdTarget(gc_init, gv_init);
-  raibot_vicon->setPdGains(jointPGain, jointDGain);
-  raibot_vicon->setPdTarget(gc_init, gv_init);
 
   return true;
 }
