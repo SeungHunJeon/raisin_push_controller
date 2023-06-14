@@ -30,9 +30,9 @@ raibotLearningController::raibotLearningController()
   serviceSetCommand_ = this->create_service<raisin_interfaces::srv::Vector3>(
       "raisin_push_controller/set_command", std::bind(&raibotLearningController::setCommand, this, _1, _2)
       );
-//  joySubscriber_ = this->create_subscription<sensor_msgs::msg::Joy>(
-//      "joy", 10, std::bind(&raibotLearningController::setCommandByTopic, this, _1)
-//      );
+  joySubscriber_ = this->create_subscription<sensor_msgs::msg::Joy>(
+      "joy", 10, std::bind(&raibotLearningController::setCommandByTopic, this, _1)
+      );
 
 //  rclcpp::QoS qos(rclcpp::KeepLast(1));
 //  rclcpp::Rate limitPubRate(2.0);
@@ -53,7 +53,7 @@ bool raibotLearningController::create(raisim::World *world) {
 
   raibotController_.create(world);
   subgoal_command.setZero(3);
-
+  subgoal_command_prev.setZero(3);
 //  normal_limit_ = param_("command_normal_mode");
 //  boost_limit_ = param_("command_boost_mode");
 
@@ -164,11 +164,15 @@ bool raibotLearningController::advance(raisim::World *world) {
   {
     if(clk_ % int(high_control_dt_ / communication_dt_ + 1e-10) == 0) {
       raibotController_.updateHighObservation(world);
+      
       subgoal_command =
           raibotController_.high_advance(world, high_obsScalingAndGetAction().head(3));
 //      RSINFO(subgoal_command);
       raibotController_.updateHighActionHistory(subgoal_command);
       raibotController_.setCommand(subgoal_command);
+
+      subgoal_command_prev = subgoal_command;
+
 //      RSINFO(subgoal_command)
     }
 //    /// For history update
@@ -176,22 +180,21 @@ bool raibotLearningController::advance(raisim::World *world) {
 //
 //    }
   }
-  /// For low level advance
+
   if(clk_ % int(control_dt_ / communication_dt_ + 1e-10) == 0) {
-    if (pd_clk_ < 100) {
-      warmUp(world);
-      ++pd_clk_;
-    }
+      if(pd_clk_ < 100) {
+        warmUp(world);
+      }
 
-    else {
-      raibot->setControlMode(raisim::ControlMode::PD_PLUS_FEEDFORWARD_TORQUE);
-      raibot->setPdGains(raibotController_.getJointPGain(), raibotController_.getJointDGain());
-      raibotController_.updateHighHistory();
-      raibotController_.updateObservation(world);
-      raibotController_.updateHighStateVariable(world);
-      raibotController_.advance(world, obsScalingAndGetAction().head(12));
-    }
-
+      else {
+        raibot->setControlMode(raisim::ControlMode::PD_PLUS_FEEDFORWARD_TORQUE);
+        raibot->setPdGains(raibotController_.getJointPGain(), raibotController_.getJointDGain());
+        raibotController_.updateHighHistory();
+        raibotController_.updateObservation(world);
+        raibotController_.updateHighStateVariable(world);
+        raibotController_.advance(world, obsScalingAndGetAction().head(12));
+      }
+    ++pd_clk_;
     log_->append(raibotController_.getObservation(), estUnscaled_, raibotController_.getJointPTarget(), subgoal_command, high_obs_);
   }
   clk_++;
@@ -228,7 +231,7 @@ Eigen::VectorXf raibotLearningController::high_obsScalingAndGetAction() {
 //  RSINFO(high_action)
   double high_action_norm = high_action.norm();
   high_action = high_action / (high_action_norm + 1e-8);
-  high_action = high_action * 2.5 * (1/((1+exp(-high_action_norm)) + 1e-8));
+  high_action = high_action * 1.5 * (1/((1+exp(-high_action_norm)) + 1e-8));
   return high_action;
 }
 
@@ -310,38 +313,16 @@ try {
   response->message = e.what();
 }
 
-//void raibotLearningController::setCommandByTopic(const sensor_msgs::msg::Joy::SharedPtr msg)
-//try {
-//  Eigen::Vector3f command;
-//  auto limit = [this](auto msg, int commandType) {
-//    return normal_limit_[commandType] + (-msg->axes[2] + 1) *
-//    (boost_limit_[commandType] - normal_limit_[commandType]) / 2;
-//  };
-//
-//  /// axes 1 is x. 0 is y. 2 is z.
-//  if (msg->axes[1] > 0) { msg->axes[1] *= limit(msg, 0); }
-//  if (msg->axes[1] < 0) { msg->axes[1] *= limit(msg, 1); }
-//  msg->axes[0] *= limit(msg, 2);
-//  msg->axes[3] *= limit(msg, 3);
-//  command = {msg->axes[1], msg->axes[0], msg->axes[3]};
-//  raibotController_.setCommand(command);
-//
-//  /// cmd limit modification
-//  if ((std::abs(msg->axes[6]) > 0.5 || std::abs(msg->axes[7]) > 0.5) && !button_press_buffer_) {
-//    if (msg->buttons[1] > 0.5) {
-//      boost_limit_[0] += 0.1 * msg->axes[7];
-//      boost_limit_[3] += -0.1 * msg->axes[6];
-//    } else {
-//      normal_limit_[0] += 0.1 * msg->axes[7];
-//      normal_limit_[3] += -0.1 * msg->axes[6];
-//    }
-//    button_press_buffer_ = true;
-//  } else {
-//    button_press_buffer_ = false;
-//  }
-//} catch (const std::exception &e) {
-//  std::cout << e.what();
-//}
+void raibotLearningController::setCommandByTopic(const sensor_msgs::msg::Joy::SharedPtr msg)
+try {
+  Eigen::Vector3f command;
+  /// axes 1 is x. 0 is y. 2 is z.
+  if (msg->axes[7] == 1.0) {
+    raibotController_.setStop();
+  }
+} catch (const std::exception &e) {
+  std::cout << e.what();
+}
 
 //void raibotLearningController::velocityLimitDisplayCallback()
 //{

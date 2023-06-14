@@ -222,6 +222,7 @@ class raibotController {
       Obj_vicon_->getPosition(obj_pos);
       Obj_vicon_->getLinearVelocity(obj_vel);
       Obj_vicon_->getAngularVelocity(obj_avel);
+      obj_pos[2] = obj_pos[2] / 2;
     }
 
     else
@@ -237,6 +238,11 @@ class raibotController {
     ee_to_obj = (obj_pos.e() - ee_pos_w.e());
     obj_to_target = (high_command_ - obj_pos.e());
     ee_to_target = (high_command_ - ee_pos_w.e());
+    
+    if(obj_to_target.head(2).norm() < 0.05){
+        is_success = true;
+    }
+
 
     /// Set height as 0
     ee_to_obj(2) = 0;
@@ -311,6 +317,10 @@ class raibotController {
 
   void updateObservation(raisim::World *world) {
     auto* raibot = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot"));
+    if(useVicon_) {
+        raibot = reinterpret_cast<raisim::ArticulatedSystem*>(world->getObject("robot_dummy"));
+    }
+
     raibot->getState(gc_, gv_);
 
     raisim::Vec<4> quat;
@@ -331,6 +341,14 @@ class raibotController {
     if (std::abs(command_(2)) - 2.943 / (command_.head(2).norm() + 1e-8) > 0) {
       command_(2) = std::copysign(2.943 / (command_.head(2).norm() + 1e-8), command_(2));
     }
+
+    if(is_success) {
+      command_ = {0,0,0};
+    }
+
+    if(is_stop) {
+      command_ = {0,0,0};
+    }
   }
 
   Eigen::Vector3d getCommand() { return command_; }
@@ -342,6 +360,11 @@ class raibotController {
 //    RSINFO(observation)
   }
 //    return high_obDouble_;}
+
+
+  void setStop() {
+    is_stop = true;
+  } 
 
   int getHighHistoryNum() const {return high_historyNum_;}
 
@@ -381,7 +404,8 @@ private:
   Eigen::Vector3d bodyAngularVel_;
   Eigen::Vector3d bodyLinearVel_;
   raisim::Vec<3> obj_geometry;
-
+  bool is_success = false;
+  bool is_stop = false;
   int obDim_;
   int high_obDim_;
   int estDim_;

@@ -39,11 +39,11 @@ class raibotLearningController : public Controller {
       const std::shared_ptr<raisin_interfaces::srv::Vector3::Request> request,
       std::shared_ptr<raisin_interfaces::srv::Vector3::Response> response
       );
-//  void setCommandByTopic(const sensor_msgs::msg::Joy::SharedPtr msg);
+  void setCommandByTopic(const sensor_msgs::msg::Joy::SharedPtr msg);
 //  void velocityLimitDisplayCallback();
 
   rclcpp::Service<raisin_interfaces::srv::Vector3>::SharedPtr serviceSetCommand_;
-//  rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr joySubscriber_;
+  rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr joySubscriber_;
 
 //  rclcpp::Publisher<raisin_raibot::msg::VelocityLimit>::SharedPtr limitPublisher_;
 //  rclcpp::TimerBase::SharedPtr limitTimer_;
@@ -60,6 +60,7 @@ class raibotLearningController : public Controller {
   Eigen::VectorXf high_obsMean_;
   Eigen::VectorXf high_obsVariance_;
   Eigen::VectorXf subgoal_command;
+  Eigen::VectorXf subgoal_command_prev;
   Eigen::VectorXf high_obs_;
 
   raisim::nn::LSTM_MLP<float, 41, 12, raisim::nn::ActivationType::leaky_relu> actor_;
